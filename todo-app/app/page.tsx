@@ -310,24 +310,52 @@ export default function TodoPage() {
   // ------------------------
   // 完了トグル
   // ------------------------
-  const toggleTaskStatus = (id: string) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === id
-          ? {
-              ...task,
-              status: task.status === "active" ? "done" : "active",
-            }
-          : task
-      )
-    );
+  const toggleTaskStatus = async (id: string) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    
+    const newStatus = task.status === "active" ? "done" : "active";
+    
+    if (useDatabase) {
+      try {
+        await apiService.updateTask(id, { status: newStatus });
+        setTasks((prev) =>
+          prev.map((t) => t.id === id ? { ...t, status: newStatus as TaskStatus } : t)
+        );
+        console.log('Task status updated in database');
+      } catch (error: any) {
+        console.error('Failed to update task status:', error);
+        alert(error.message || 'ステータスの更新に失敗しました');
+      }
+    } else {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === id
+            ? { ...t, status: newStatus as TaskStatus }
+            : t
+        )
+      );
+    }
   };
 
   // ------------------------
   // delete
   // ------------------------
-  const deleteTask = (id: string, taskTitle: string) => {
-    if (window.confirm(`「${taskTitle}」を削除しますか？\nこの操作は取り消せません。`)) {
+  const deleteTask = async (id: string, taskTitle: string) => {
+    if (!window.confirm(`「${taskTitle}」を削除しますか？\nこの操作は取り消せません。`)) {
+      return;
+    }
+    
+    if (useDatabase) {
+      try {
+        await apiService.deleteTask(id);
+        setTasks((prev) => prev.filter((task) => task.id !== id));
+        console.log('Task deleted from database');
+      } catch (error: any) {
+        console.error('Failed to delete task:', error);
+        alert(error.message || 'タスクの削除に失敗しました');
+      }
+    } else {
       setTasks((prev) => prev.filter((task) => task.id !== id));
     }
   };
@@ -353,23 +381,49 @@ export default function TodoPage() {
     setEditingDueDate(currentDueDate ? currentDueDate.split('T')[0] : "");
   };
 
-  const saveEditTask = (id: string) => {
+  const saveEditTask = async (id: string) => {
     const trimmed = editingTitle.trim();
-    if (trimmed) {
-      const estimatedHours = editingEstimatedHours ? parseFloat(editingEstimatedHours) : undefined;
-      const dueDate = editingDueDate ? new Date(editingDueDate).toISOString() : undefined;
-      
+    if (!trimmed) return;
+    
+    const estimatedHours = editingEstimatedHours ? parseFloat(editingEstimatedHours) : undefined;
+    const dueDate = editingDueDate ? new Date(editingDueDate).toISOString() : null;
+    
+    if (useDatabase) {
+      try {
+        await apiService.updateTask(id, {
+          title: trimmed,
+          estimatedHours,
+          dueDate
+        });
+        setTasks((prev) =>
+          prev.map((task) =>
+            task.id === id ? { 
+              ...task, 
+              title: trimmed,
+              ...(estimatedHours && estimatedHours > 0 && { estimatedHours }),
+              dueDate: dueDate || undefined
+            } : task
+          )
+        );
+        console.log('Task updated in database');
+      } catch (error: any) {
+        console.error('Failed to update task:', error);
+        alert(error.message || 'タスクの更新に失敗しました');
+        return;
+      }
+    } else {
       setTasks((prev) =>
         prev.map((task) =>
           task.id === id ? { 
             ...task, 
             title: trimmed,
             ...(estimatedHours && estimatedHours > 0 && { estimatedHours }),
-            ...(dueDate ? { dueDate } : { dueDate: undefined })
+            dueDate: dueDate || undefined
           } : task
         )
       );
     }
+    
     setEditingTaskId(null);
     setEditingTitle("");
     setEditingEstimatedHours("");
@@ -417,38 +471,83 @@ export default function TodoPage() {
   // ------------------------
   const [activeTaskIds, setActiveTaskIds] = useState<string[]>([]);
 
-  const startWork = (id: string) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === id
-          ? {
-              ...task,
-              isWorking: true,
-              workStartTime: new Date().toISOString(),
-            }
-          : task
-      )
-    );
+  const startWork = async (id: string) => {
+    const workStartTime = new Date().toISOString();
+    
+    if (useDatabase) {
+      try {
+        await apiService.updateTask(id, {
+          isWorking: true,
+          workStartTime
+        });
+        setTasks((prev) =>
+          prev.map((task) =>
+            task.id === id ? { ...task, isWorking: true, workStartTime } : task
+          )
+        );
+        console.log('Work started in database');
+      } catch (error: any) {
+        console.error('Failed to start work:', error);
+        alert(error.message || '作業開始に失敗しました');
+        return;
+      }
+    } else {
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === id
+            ? { ...task, isWorking: true, workStartTime }
+            : task
+        )
+      );
+    }
     setActiveTaskIds((prev) => [...new Set([...prev, id])]);
   };
 
-  const stopWork = (id: string, removeFromActive: boolean = false) => {
-    setTasks((prev) =>
-      prev.map((task) => {
-        if (task.id === id && task.isWorking && task.workStartTime) {
-          const startTime = new Date(task.workStartTime).getTime();
-          const endTime = new Date().getTime();
-          const workedHours = (endTime - startTime) / (1000 * 60 * 60); // ミリ秒を時間に変換
-          return {
-            ...task,
-            isWorking: false,
-            workStartTime: undefined,
-            actualHours: (task.actualHours || 0) + workedHours,
-          };
-        }
-        return task;
-      })
-    );
+  const stopWork = async (id: string, removeFromActive: boolean = false) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task || !task.isWorking || !task.workStartTime) return;
+    
+    const startTime = new Date(task.workStartTime).getTime();
+    const endTime = new Date().getTime();
+    const workedHours = (endTime - startTime) / (1000 * 60 * 60);
+    const newActualHours = (task.actualHours || 0) + workedHours;
+    
+    if (useDatabase) {
+      try {
+        await apiService.updateTask(id, {
+          isWorking: false,
+          workStartTime: null,
+          actualHours: newActualHours
+        });
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === id
+              ? { ...t, isWorking: false, workStartTime: undefined, actualHours: newActualHours }
+              : t
+          )
+        );
+        console.log('Work stopped in database');
+      } catch (error: any) {
+        console.error('Failed to stop work:', error);
+        alert(error.message || '作業停止に失敗しました');
+        return;
+      }
+    } else {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id === id && t.isWorking && t.workStartTime) {
+            return {
+              ...t,
+              isWorking: false,
+              workStartTime: undefined,
+              actualHours: newActualHours,
+            };
+          }
+          return t;
+        })
+      );
+    }
+    
     if (removeFromActive) {
       setActiveTaskIds((prev) => prev.filter((taskId) => taskId !== id));
     }
@@ -554,20 +653,22 @@ export default function TodoPage() {
         if (catToDelete) {
           await apiService.deleteCategory(catToDelete.id);
           setDbCategories((prev) => prev.filter((cat) => cat.id !== catToDelete.id));
-          console.log('Category deleted from database:', catToDelete);
+          // データベースのカスケード削除により、関連タスクも削除される
+          setTasks((prev) => prev.filter((task) => task.category !== categoryToDelete));
+          console.log('Category and related tasks deleted from database:', catToDelete);
         }
       } catch (error: any) {
         console.error('Failed to delete category:', error);
         alert(error.message || 'カテゴリーの削除に失敗しました');
         return;
       }
+    } else {
+      // localStorageモードの場合
+      setTasks((prev) => prev.filter((task) => task.category !== categoryToDelete));
     }
     
     // カテゴリをdelete
     setCategories((prev) => prev.filter((cat) => cat !== categoryToDelete));
-    
-    // そのカテゴリのタスクをすべてdelete
-    setTasks((prev) => prev.filter((task) => task.category !== categoryToDelete));
     
     // deleteされたカテゴリが現在選択されている場合、最初のカテゴリに変更
     if (category === categoryToDelete) {
