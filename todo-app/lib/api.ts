@@ -2,7 +2,7 @@
 
 export const apiService = {
   // 認証トークンを取得
-  getAuthHeader() {
+  getAuthHeader(): Record<string, string> {
     const token = localStorage.getItem('auth_token')
     return token ? { Authorization: `Bearer ${token}` } : {}
   },
