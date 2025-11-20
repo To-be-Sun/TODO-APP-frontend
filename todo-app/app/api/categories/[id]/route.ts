@@ -20,12 +20,13 @@ async function getUserFromToken(request: Request) {
 // カテゴリー更新
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const userId = await getUserFromToken(request)
     const { name } = await request.json()
-    const categoryId = parseInt(params.id)
+    const { id } = await params
+    const categoryId = parseInt(id)
 
     // Prisma基本操作3: update - レコード更新
     // where条件で権限チェックも同時に行う
@@ -58,11 +59,12 @@ export async function PUT(
 // カテゴリー削除
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const userId = await getUserFromToken(request)
-    const categoryId = parseInt(params.id)
+    const { id } = await params
+    const categoryId = parseInt(id)
 
     // Prisma基本操作4: delete - レコード削除
     // onDelete: Cascade が設定されているので、関連するタスクも自動削除される

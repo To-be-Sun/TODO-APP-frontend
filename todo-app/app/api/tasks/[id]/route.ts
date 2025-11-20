@@ -20,11 +20,12 @@ async function getUserFromToken(request: Request) {
 // タスク更新
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const userId = await getUserFromToken(request)
     const data = await request.json()
+    const { id } = await params
 
     // Prisma高度な操作3: 部分更新（undefined のフィールドは更新しない）
     const updateData: any = {}
@@ -42,7 +43,7 @@ export async function PUT(
 
     const task = await prisma.task.update({
       where: {
-        id: params.id,
+        id: id,
         userId
       },
       data: updateData,
@@ -72,14 +73,15 @@ export async function PUT(
 // タスク削除
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const userId = await getUserFromToken(request)
+    const { id } = await params
 
     await prisma.task.delete({
       where: {
-        id: params.id,
+        id: id,
         userId
       }
     })
@@ -105,15 +107,16 @@ export async function DELETE(
 // 単一タスク取得
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const userId = await getUserFromToken(request)
+    const { id } = await params
 
     // Prisma基本操作5: findUnique - 単一レコード取得
     const task = await prisma.task.findUnique({
       where: {
-        id: params.id
+        id: id
       },
       include: {
         category: true,

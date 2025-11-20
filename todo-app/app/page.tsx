@@ -383,6 +383,35 @@ export default function TodoPage() {
     setEditingDueDate("");
   };
 
+  // タスク更新（カレンダーでのドラッグ&ドロップ用）
+  const handleUpdateTask = async (id: string, updates: { dueDate?: string }) => {
+    if (useDatabase) {
+      try {
+        const dueDate = updates.dueDate ? new Date(updates.dueDate).toISOString() : undefined;
+        await apiService.updateTask(id, { dueDate });
+        
+        setTasks((prev) =>
+          prev.map((task) =>
+            task.id === id ? { ...task, dueDate } : task
+          )
+        );
+        console.log('Task updated in database');
+      } catch (error: any) {
+        console.error('Failed to update task:', error);
+        alert(error.message || 'タスクの更新に失敗しました');
+      }
+    } else {
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === id ? { 
+            ...task, 
+            dueDate: updates.dueDate ? new Date(updates.dueDate).toISOString() : undefined 
+          } : task
+        )
+      );
+    }
+  };
+
   // ------------------------
   // タスク作業時間管理
   // ------------------------
@@ -1461,6 +1490,21 @@ export default function TodoPage() {
                               className={`min-h-[120px] border rounded-md p-2 ${
                                 isToday ? 'bg-primary/10 border-primary' : 'bg-background'
                               }`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.currentTarget.classList.add('bg-primary/20');
+                              }}
+                              onDragLeave={(e) => {
+                                e.currentTarget.classList.remove('bg-primary/20');
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                e.currentTarget.classList.remove('bg-primary/20');
+                                const taskId = e.dataTransfer.getData('taskId');
+                                if (taskId) {
+                                  handleUpdateTask(taskId, { dueDate: dateStr });
+                                }
+                              }}
                             >
                               <div className={`text-sm font-semibold mb-2 ${isToday ? 'text-primary' : ''}`}>
                                 {day}
@@ -1471,7 +1515,15 @@ export default function TodoPage() {
                                   return (
                                     <div
                                       key={task.id}
-                                      className={`text-xs px-2 py-1 rounded truncate cursor-pointer hover:opacity-80 transition-opacity ${colorClass}`}
+                                      draggable
+                                      onDragStart={(e) => {
+                                        e.dataTransfer.setData('taskId', task.id);
+                                        e.currentTarget.classList.add('opacity-50');
+                                      }}
+                                      onDragEnd={(e) => {
+                                        e.currentTarget.classList.remove('opacity-50');
+                                      }}
+                                      className={`text-xs px-2 py-1 rounded truncate cursor-move hover:opacity-80 transition-opacity ${colorClass}`}
                                       title={task.title}
                                       onClick={() => {
                                         setActiveTab("todo");
