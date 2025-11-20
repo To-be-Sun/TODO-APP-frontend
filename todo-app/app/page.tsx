@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 
 import { Button } from "@/components/ui/button";
+import { apiService } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -24,10 +25,18 @@ import { authService } from "@/lib/auth";
 
 type TaskStatus = "active" | "done";
 
+type Category = {
+  id: number;
+  name: string;
+  userId: number;
+  createdAt: string;
+};
+
 type Task = {
   id: string;
   title: string;
-  category: string;
+  category?: string; // 後方互換性のため残す
+  categoryId?: number; // Prisma用
   status: TaskStatus;
   createdAt: string; // ISO string
   estimatedHours?: number; // 予定工数（時間）
@@ -35,6 +44,25 @@ type Task = {
   isWorking?: boolean; // 作業中かどうか
   workStartTime?: string; // 作業開始時刻（ISO string）
   dueDate?: string; // 期日（ISO string）
+};
+
+type PrismaTask = {
+  id: string;
+  title: string;
+  status: string;
+  categoryId: number;
+  userId: number;
+  estimatedHours: number | null;
+  actualHours: number | null;
+  isWorking: boolean;
+  workStartTime: string | null;
+  dueDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  category?: {
+    id: number;
+    name: string;
+  };
 };
 
 // localStorage 用キーを生成する関数
@@ -66,6 +94,8 @@ export default function TodoPage() {
   const [user, setUser] = useState<any>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [dbCategories, setDbCategories] = useState<Category[]>([]);
+  const [useDatabase, setUseDatabase] = useState(false); // DB使用フラグ
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<string>("");
   const [estimatedHours, setEstimatedHours] = useState<string>("");
@@ -110,45 +140,87 @@ export default function TodoPage() {
   };
 
   // ------------------------
-  // 初期ロード（localStorage）
+  // 初期ロード（Prisma API + localStorage）
   // ------------------------
   useEffect(() => {
     if (typeof window === "undefined" || !user?.id) return;
     
-    const STORAGE_KEY = getStorageKey(user.id, "tasks");
-    const CATEGORIES_KEY = getStorageKey(user.id, "categories");
+    const loadData = async () => {
+      try {
+        // データベースからカテゴリーとタスクを取得
+        try {
+          const [dbCats, dbTasks] = await Promise.all([
+            apiService.getCategories(),
+            apiService.getTasks()
+          ]);
+          
+          setDbCategories(dbCats);
+          setCategories(dbCats.map((c: Category) => c.name));
+          
+          // PrismaタスクをローカルTask型に変換
+          const convertedTasks = dbTasks.map((t: PrismaTask) => ({
+            id: t.id,
+            title: t.title,
+            category: t.category?.name || '',
+            categoryId: t.categoryId,
+            status: t.status as TaskStatus,
+            createdAt: t.createdAt,
+            estimatedHours: t.estimatedHours || undefined,
+            actualHours: t.actualHours || undefined,
+            isWorking: t.isWorking || false,
+            workStartTime: t.workStartTime || undefined,
+            dueDate: t.dueDate || undefined
+          }));
+          
+          setTasks(convertedTasks);
+          setUseDatabase(true);
+          
+          console.log('Loaded from database:', { categories: dbCats.length, tasks: dbTasks.length });
+        } catch (dbError) {
+          console.error("Failed to load from database, falling back to localStorage:", dbError);
+          
+          // データベース読み込み失敗時はlocalStorageから読み込み
+          const STORAGE_KEY = getStorageKey(user.id, "tasks");
+          const CATEGORIES_KEY = getStorageKey(user.id, "categories");
+          
+          const stored = window.localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            try {
+              const parsed = JSON.parse(stored) as Task[];
+              setTasks(parsed);
+            } catch (e) {
+              console.error("Failed to parse tasks from localStorage", e);
+            }
+          }
+          const storedCategories = window.localStorage.getItem(CATEGORIES_KEY);
+          if (storedCategories) {
+            try {
+              const parsed = JSON.parse(storedCategories) as string[];
+              setCategories(parsed);
+            } catch (e) {
+              console.error("Failed to parse categories from localStorage", e);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load data:", error);
+      }
+    };
     
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as Task[];
-        setTasks(parsed);
-      } catch (e) {
-        console.error("Failed to parse tasks from localStorage", e);
-      }
-    }
-    const storedCategories = window.localStorage.getItem(CATEGORIES_KEY);
-    if (storedCategories) {
-      try {
-        const parsed = JSON.parse(storedCategories) as string[];
-        setCategories(parsed);
-      } catch (e) {
-        console.error("Failed to parse categories from localStorage", e);
-      }
-    }
+    loadData();
   }, [user]);
 
   // ------------------------
-  // 変更があるたびに保存
+  // 変更があるたびに保存（DBモードではスキップ）
   // ------------------------
   useEffect(() => {
-    if (typeof window === "undefined" || !user?.id) return;
+    if (typeof window === "undefined" || !user?.id || useDatabase) return;
     const STORAGE_KEY = getStorageKey(user.id, "tasks");
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-  }, [tasks, user]);
+  }, [tasks, user, useDatabase]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !user?.id) return;
+    if (typeof window === "undefined" || !user?.id || useDatabase) return;
     const CATEGORIES_KEY = getStorageKey(user.id, "categories");
     window.localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
   }, [categories, user]);
@@ -156,7 +228,7 @@ export default function TodoPage() {
   // ------------------------
   // タスク追加
   // ------------------------
-  const handleAddTask = () => {
+  const handleAddTask = async () => {
     const trimmed = title.trim();
     if (!trimmed) {
       alert("タスク名を入力してください");
@@ -175,17 +247,53 @@ export default function TodoPage() {
 
     const hours = parseFloat(estimatedHours);
 
-    const newTask: Task = {
-      id: uuidv4(),
-      title: trimmed,
-      category,
-      status: "active",
-      createdAt: new Date().toISOString(),
-      estimatedHours: hours,
-      ...(dueDate && { dueDate: new Date(dueDate).toISOString() }),
-    };
+    if (useDatabase) {
+      try {
+        const catObj = dbCategories.find(c => c.name === category);
+        if (!catObj) {
+          alert("カテゴリが見つかりません");
+          return;
+        }
+        
+        const createdTask = await apiService.createTask({
+          title: trimmed,
+          categoryId: catObj.id,
+          status: "active",
+          estimatedHours: hours,
+          ...(dueDate && { dueDate: new Date(dueDate).toISOString() })
+        });
+        
+        const newTask: Task = {
+          id: createdTask.id,
+          title: createdTask.title,
+          category: createdTask.category?.name || category,
+          categoryId: createdTask.categoryId,
+          status: createdTask.status as TaskStatus,
+          createdAt: createdTask.createdAt,
+          estimatedHours: createdTask.estimatedHours || undefined,
+          dueDate: createdTask.dueDate || undefined
+        };
+        
+        setTasks((prev) => [newTask, ...prev]);
+        console.log('Task created in database:', createdTask);
+      } catch (error: any) {
+        console.error('Failed to create task:', error);
+        alert(error.message || 'タスクの作成に失敗しました');
+        return;
+      }
+    } else {
+      const newTask: Task = {
+        id: uuidv4(),
+        title: trimmed,
+        category,
+        status: "active",
+        createdAt: new Date().toISOString(),
+        estimatedHours: hours,
+        ...(dueDate && { dueDate: new Date(dueDate).toISOString() }),
+      };
 
-    setTasks((prev) => [newTask, ...prev]);
+      setTasks((prev) => [newTask, ...prev]);
+    }
     setTitle("");
     setEstimatedHours("");
     setDueDate("");
@@ -374,11 +482,27 @@ export default function TodoPage() {
   // ------------------------
   // カテゴリ追加
   // ------------------------
-  const handleAddCategory = () => {
+  const handleAddCategory = async () => {
     const trimmed = newCategory.trim();
     if (!trimmed || categories.includes(trimmed)) return;
-    setCategories((prev) => [...prev, trimmed]);
-    setCategory(trimmed);
+    
+    if (useDatabase) {
+      try {
+        const newCat = await apiService.createCategory(trimmed);
+        setDbCategories((prev) => [...prev, newCat]);
+        setCategories((prev) => [...prev, newCat.name]);
+        setCategory(newCat.name);
+        console.log('Category created in database:', newCat);
+      } catch (error: any) {
+        console.error('Failed to create category:', error);
+        alert(error.message || 'カテゴリーの作成に失敗しました');
+        return;
+      }
+    } else {
+      setCategories((prev) => [...prev, trimmed]);
+      setCategory(trimmed);
+    }
+    
     setNewCategory("");
     setShowCategoryInput(false);
   };
@@ -386,11 +510,26 @@ export default function TodoPage() {
   // ------------------------
   // カテゴリdelete
   // ------------------------
-  const handleDeleteCategory = (categoryToDelete: string) => {
+  const handleDeleteCategory = async (categoryToDelete: string) => {
     // そのカテゴリのタスクが存在する場合は警告
     const tasksInCategory = tasks.filter((task) => task.category === categoryToDelete);
     if (tasksInCategory.length > 0) {
       if (!window.confirm(`「${categoryToDelete}」には${tasksInCategory.length}件のタスクがあります。カテゴリとすべてのタスクをdeleteしてもよろしいですか？`)) {
+        return;
+      }
+    }
+    
+    if (useDatabase) {
+      try {
+        const catToDelete = dbCategories.find(c => c.name === categoryToDelete);
+        if (catToDelete) {
+          await apiService.deleteCategory(catToDelete.id);
+          setDbCategories((prev) => prev.filter((cat) => cat.id !== catToDelete.id));
+          console.log('Category deleted from database:', catToDelete);
+        }
+      } catch (error: any) {
+        console.error('Failed to delete category:', error);
+        alert(error.message || 'カテゴリーの削除に失敗しました');
         return;
       }
     }
@@ -559,7 +698,8 @@ export default function TodoPage() {
           dataMap.set(date, {});
         }
         const dayData = dataMap.get(date)!;
-        dayData[task.category] = (dayData[task.category] || 0) + task.actualHours;
+        const categoryName = task.category || 'Unknown';
+        dayData[categoryName] = (dayData[categoryName] || 0) + task.actualHours;
       }
     });
     

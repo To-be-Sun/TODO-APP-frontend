@@ -49,3 +49,10 @@ backend/*.db-*
 *.pyo
 *.pyd
 __pycache__/
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+.env
+
+/lib/generated/prisma

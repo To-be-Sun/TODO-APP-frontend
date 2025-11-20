@@ -22,7 +22,7 @@ export default function LoginPage() {
 
     try {
       const data = await authService.login(email, password);
-      authService.saveToken(data.access_token);
+      authService.saveToken(data.token);
       router.push("/");
     } catch (err: any) {
       setError(err.message || "ログインに失敗しました");

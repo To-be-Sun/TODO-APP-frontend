@@ -34,8 +34,16 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      const data = await authService.signup(email, password, username);
-      authService.saveToken(data.access_token);
+      // Prisma APIを使用してサインアップ
+      const data = await authService.signup(email, password, username || email.split('@')[0]);
+      
+      // ユーザー情報を保存
+      localStorage.setItem('currentUser', JSON.stringify(data));
+      
+      // 自動的にログイン
+      const loginData = await authService.login(email, password);
+      authService.saveToken(loginData.token);
+      
       router.push("/");
     } catch (err: any) {
       setError(err.message || "サインアップに失敗しました");
