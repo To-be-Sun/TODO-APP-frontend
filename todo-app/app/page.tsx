@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 
@@ -111,6 +111,7 @@ export default function TodoPage() {
   const [editingDueDate, setEditingDueDate] = useState<string>("");
   const [activeTab, setActiveTab] = useState<string>("todo");
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
 
   // 認証チェック
   useEffect(() => {
@@ -1613,23 +1614,22 @@ export default function TodoPage() {
                               <div className="space-y-1">
                                 {tasksOnThisDay.map(task => {
                                   const colorClass = getDueDateColor(task.dueDate!, task.status);
-                                  let isDragging = false;
                                   return (
                                     <div
                                       key={task.id}
                                       draggable
                                       onDragStart={(e) => {
-                                        isDragging = true;
+                                        setDraggingTaskId(task.id);
                                         e.dataTransfer.effectAllowed = 'move';
                                         e.dataTransfer.setData('taskId', task.id);
                                         e.currentTarget.classList.add('opacity-50');
                                       }}
                                       onDragEnd={(e) => {
                                         e.currentTarget.classList.remove('opacity-50');
-                                        setTimeout(() => { isDragging = false; }, 100);
+                                        setTimeout(() => setDraggingTaskId(null), 100);
                                       }}
                                       onClick={(e) => {
-                                        if (!isDragging) {
+                                        if (draggingTaskId !== task.id) {
                                           setActiveTab("todo");
                                           setTimeout(() => {
                                             const element = document.getElementById(`task-${task.id}`);
