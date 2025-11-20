@@ -1613,28 +1613,34 @@ export default function TodoPage() {
                               <div className="space-y-1">
                                 {tasksOnThisDay.map(task => {
                                   const colorClass = getDueDateColor(task.dueDate!, task.status);
+                                  let isDragging = false;
                                   return (
                                     <div
                                       key={task.id}
                                       draggable
                                       onDragStart={(e) => {
+                                        isDragging = true;
+                                        e.dataTransfer.effectAllowed = 'move';
                                         e.dataTransfer.setData('taskId', task.id);
                                         e.currentTarget.classList.add('opacity-50');
                                       }}
                                       onDragEnd={(e) => {
                                         e.currentTarget.classList.remove('opacity-50');
+                                        setTimeout(() => { isDragging = false; }, 100);
+                                      }}
+                                      onClick={(e) => {
+                                        if (!isDragging) {
+                                          setActiveTab("todo");
+                                          setTimeout(() => {
+                                            const element = document.getElementById(`task-${task.id}`);
+                                            if (element) {
+                                              element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            }
+                                          }, 100);
+                                        }
                                       }}
                                       className={`text-xs px-2 py-1 rounded truncate cursor-move hover:opacity-80 transition-opacity ${colorClass}`}
                                       title={task.title}
-                                      onClick={() => {
-                                        setActiveTab("todo");
-                                        setTimeout(() => {
-                                          const element = document.getElementById(`task-${task.id}`);
-                                          if (element) {
-                                            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                          }
-                                        }, 100);
-                                      }}
                                     >
                                       {task.title}
                                     </div>
