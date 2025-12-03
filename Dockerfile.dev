@@ -1,0 +1,30 @@
+# 開発用Dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+
+# 必要なパッケージをインストール
+RUN apk add --no-cache libc6-compat
+
+# パッケージファイルとPrismaスキーマをコピー
+COPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./
+COPY prisma ./prisma
+
+# 依存関係をインストール（postinstallでprisma generateが実行される）
+RUN \
+  if [ -f yarn.lock ]; then yarn --frozen-lockfile; \
+  elif [ -f package-lock.json ]; then npm ci; \
+  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile; \
+  else npm install; \
+  fi
+
+# アプリケーションコードをコピー
+COPY . .
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+# 開発サーバーを起動
+CMD ["npm", "run", "dev"]

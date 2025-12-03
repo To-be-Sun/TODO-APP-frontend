@@ -16,7 +16,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { authService } from "@/lib/auth";
 
 // ========================
@@ -39,6 +39,7 @@ type Task = {
   categoryId?: number; // Prisma用
   status: TaskStatus;
   createdAt: string; // ISO string
+  updatedAt?: string; // 更新日時（ISO string）- 完了日として使用
   estimatedHours?: number; // 予定工数（時間）
   actualHours?: number; // 実績工数（時間）
   isWorking?: boolean; // 作業中かどうか
@@ -70,18 +71,33 @@ const getStorageKey = (userId: number, key: string) => {
   return `portfolio-todo-${userId}-${key}`;
 };
 
-// 日付をローカルタイムゾーンでYYYY-MM-DD形式に変換
-const formatDateToLocal = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+// 日本時間(JST)のタイムゾーン
+const JST_TIMEZONE = 'Asia/Tokyo';
+
+// 日付を日本時間でYYYY-MM-DD形式に変換
+const formatDateToJST = (date: Date): string => {
+  return date.toLocaleDateString('ja-JP', {
+    timeZone: JST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).replace(/\//g, '-');
 };
 
-// YYYY-MM-DD形式の文字列をローカルタイムゾーンのDateオブジェクトに変換
+// 互換性のためのエイリアス
+const formatDateToLocal = formatDateToJST;
+
+// YYYY-MM-DD形式の文字列を日本時間のDateオブジェクトに変換
 const parseLocalDate = (dateStr: string): Date => {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day);
+};
+
+// 現在の日本時間を取得
+const getJSTDate = (): Date => {
+  const now = new Date();
+  const jstString = now.toLocaleString('ja-JP', { timeZone: JST_TIMEZONE });
+  return new Date(jstString);
 };
 
 // ========================
@@ -112,6 +128,10 @@ export default function TodoPage() {
   const [activeTab, setActiveTab] = useState<string>("todo");
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [recordMonth, setRecordMonth] = useState<Date>(new Date()); // Recordタブの表示月
+  const [recordSortKey, setRecordSortKey] = useState<'date' | 'category' | 'hours'>('date'); // ソートキー
+  const [recordSortOrder, setRecordSortOrder] = useState<'asc' | 'desc'>('desc'); // ソート順
+  const [selectedRecordDate, setSelectedRecordDate] = useState<string | null>(null); // 選択中の日付
 
   // 認証チェック
   useEffect(() => {
@@ -166,6 +186,7 @@ export default function TodoPage() {
             categoryId: t.categoryId,
             status: t.status as TaskStatus,
             createdAt: t.createdAt,
+            updatedAt: t.updatedAt, // 完了日として使用
             estimatedHours: t.estimatedHours || undefined,
             actualHours: t.actualHours || undefined,
             isWorking: t.isWorking || false,
@@ -818,13 +839,16 @@ export default function TodoPage() {
     };
   }, [tasks, selectedCategory]);
 
-  // 日別作業時間データの集計
+  // 日別作業時間データの集計（完了日ベース・日本時間・選択月）
   const dailyData = useMemo(() => {
     const dataMap = new Map<string, { [category: string]: number }>();
     
+    // 完了済みタスクのみを対象に、完了日（updatedAt）で集計
     tasks.forEach(task => {
-      if (task.actualHours && task.actualHours > 0) {
-        const date = formatDateToLocal(new Date(task.createdAt));
+      if (task.status === 'done' && task.actualHours && task.actualHours > 0) {
+        // updatedAtを完了日として使用（なければcreatedAt）
+        const completedDate = task.updatedAt ? new Date(task.updatedAt) : new Date(task.createdAt);
+        const date = formatDateToJST(completedDate);
         if (!dataMap.has(date)) {
           dataMap.set(date, {});
         }
@@ -834,23 +858,27 @@ export default function TodoPage() {
       }
     });
     
-    // 過去30日分のデータを生成
+    // 選択月の1日から最終日までのデータを生成
     const result = [];
-    const today = new Date();
-    for (let i = 29; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = formatDateToLocal(date);
+    const year = recordMonth.getFullYear();
+    const month = recordMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0); // 月の最終日
+    
+    for (let d = 1; d <= lastDay.getDate(); d++) {
+      const date = new Date(year, month, d);
+      const dateStr = formatDateToJST(date);
       const dayData = dataMap.get(dateStr) || {};
       
       result.push({
-        date: `${date.getMonth() + 1}/${date.getDate()}`,
+        date: `${d}`,
+        dateKey: dateStr, // クリック時に使用するフル日付キー
         ...dayData,
       });
     }
     
     return result;
-  }, [tasks]);
+  }, [tasks, recordMonth]);
 
   // 認証チェック中のローディング表示
   if (!isAuthenticated) {
@@ -1659,21 +1687,89 @@ export default function TodoPage() {
               </TabsContent>
 
               <TabsContent value="record" className="space-y-8 mt-6">
+                {/* グラフ表示 */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>作業記録（過去30日）</CardTitle>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>作業記録グラフ</CardTitle>
+                        <p className="text-sm text-muted-foreground">棒グラフをクリックすると、その日の詳細が表示されます</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => {
+                            const newMonth = new Date(recordMonth);
+                            newMonth.setMonth(newMonth.getMonth() - 1);
+                            setRecordMonth(newMonth);
+                          }}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <span className="text-lg font-semibold min-w-[120px] text-center">
+                          {recordMonth.getFullYear()}年{recordMonth.getMonth() + 1}月
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => {
+                            const newMonth = new Date(recordMonth);
+                            newMonth.setMonth(newMonth.getMonth() + 1);
+                            setRecordMonth(newMonth);
+                          }}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setRecordMonth(new Date())}
+                        >
+                          今月
+                        </Button>
+                      </div>
+                    </div>
                   </CardHeader>
                   <CardContent>
-                    <ResponsiveContainer width="100%" height={400}>
-                      <BarChart data={dailyData} barCategoryGap="10%">
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart 
+                        data={dailyData} 
+                        barCategoryGap="10%"
+                        onClick={(data) => {
+                          if (data && data.activePayload && data.activePayload.length > 0) {
+                            const clickedDateKey = data.activePayload[0].payload.dateKey;
+                            setSelectedRecordDate(prev => prev === clickedDateKey ? null : clickedDateKey);
+                          }
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis 
                           dataKey="date" 
-                          interval="preserveStartEnd"
-                          tick={{ fontSize: 12 }}
+                          interval={0}
+                          tick={{ fontSize: 10 }}
                         />
                         <YAxis label={{ value: '時間 (h)', angle: -90, position: 'insideLeft' }} />
-                        <Tooltip />
+                        <Tooltip 
+                          content={({ active, payload, label }) => {
+                            if (active && payload && payload.length > 0) {
+                              const total = payload.reduce((sum, entry) => sum + (Number(entry.value) || 0), 0);
+                              return (
+                                <div className="bg-background border rounded-lg p-3 shadow-lg">
+                                  <p className="font-semibold mb-2">{label}</p>
+                                  {payload.map((entry, index) => (
+                                    <p key={index} style={{ color: entry.color }} className="text-sm">
+                                      {entry.name}: {Number(entry.value).toFixed(1)}h
+                                    </p>
+                                  ))}
+                                  <p className="font-semibold mt-2 pt-2 border-t">合計: {total.toFixed(1)}h</p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
                         <Legend />
                         {categories.map((cat, index) => {
                           const colors = [
@@ -1691,6 +1787,148 @@ export default function TodoPage() {
                         })}
                       </BarChart>
                     </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                {/* 完了タスク一覧（ソート機能付き） */}
+                <Card>
+                  <CardHeader>
+                    <div className="flex justify-between items-center">
+                      <CardTitle>
+                        {selectedRecordDate 
+                          ? `${parseLocalDate(selectedRecordDate).getMonth() + 1}月${parseLocalDate(selectedRecordDate).getDate()}日の詳細`
+                          : '完了タスク一覧'
+                        }
+                      </CardTitle>
+                      <div className="flex items-center gap-2">
+                        {selectedRecordDate ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedRecordDate(null)}
+                          >
+                            全て表示
+                          </Button>
+                        ) : (
+                          <>
+                            <Select
+                              value={recordSortKey}
+                              onValueChange={(value: 'date' | 'category' | 'hours') => setRecordSortKey(value)}
+                            >
+                              <SelectTrigger className="w-[130px]">
+                                <SelectValue placeholder="ソート項目" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="date">完了日</SelectItem>
+                                <SelectItem value="category">カテゴリー</SelectItem>
+                                <SelectItem value="hours">実績時間</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setRecordSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                            >
+                              {recordSortOrder === 'desc' ? '↓ 降順' : '↑ 昇順'}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {(() => {
+                        // 表示月の完了タスクをフィルター
+                        let completedTasks = tasks
+                          .filter(t => {
+                            if (t.status !== 'done' || !t.actualHours || t.actualHours <= 0) return false;
+                            const completedDate = t.updatedAt ? new Date(t.updatedAt) : new Date(t.createdAt);
+                            // 選択日がある場合はその日のみ、なければ月全体
+                            if (selectedRecordDate) {
+                              return formatDateToJST(completedDate) === selectedRecordDate;
+                            }
+                            return completedDate.getFullYear() === recordMonth.getFullYear() &&
+                                   completedDate.getMonth() === recordMonth.getMonth();
+                          });
+
+                        // ソート
+                        completedTasks.sort((a, b) => {
+                          let comparison = 0;
+                          switch (recordSortKey) {
+                            case 'date':
+                              const dateA = a.updatedAt ? new Date(a.updatedAt) : new Date(a.createdAt);
+                              const dateB = b.updatedAt ? new Date(b.updatedAt) : new Date(b.createdAt);
+                              comparison = dateA.getTime() - dateB.getTime();
+                              break;
+                            case 'category':
+                              comparison = (a.category || '').localeCompare(b.category || '');
+                              break;
+                            case 'hours':
+                              comparison = (a.actualHours || 0) - (b.actualHours || 0);
+                              break;
+                          }
+                          return recordSortOrder === 'asc' ? comparison : -comparison;
+                        });
+
+                        if (completedTasks.length === 0) {
+                          return (
+                            <div className="text-center text-muted-foreground py-8">
+                              {selectedRecordDate ? 'この日に完了したタスクはありません' : 'この月に完了したタスクはありません'}
+                            </div>
+                          );
+                        }
+
+                        return completedTasks.map(task => {
+                          const completedDate = task.updatedAt ? new Date(task.updatedAt) : new Date(task.createdAt);
+                          const displayDate = `${completedDate.getMonth() + 1}/${completedDate.getDate()}`;
+                          return (
+                            <div 
+                              key={task.id} 
+                              className="flex items-center justify-between py-2 px-3 bg-muted/50 rounded-md"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="text-sm text-muted-foreground w-12">{displayDate}</span>
+                                <span 
+                                  className="px-2 py-0.5 text-xs rounded-full"
+                                  style={{
+                                    backgroundColor: (() => {
+                                      const colors = [
+                                        '#8884d8', '#82ca9d', '#ffc658', '#ff8042', 
+                                        '#a4de6c', '#d0ed57', '#83a6ed', '#8dd1e1'
+                                      ];
+                                      const catIndex = categories.indexOf(task.category || '');
+                                      return colors[catIndex >= 0 ? catIndex % colors.length : 0] + '40';
+                                    })(),
+                                    color: (() => {
+                                      const colors = [
+                                        '#8884d8', '#82ca9d', '#ffc658', '#ff8042', 
+                                        '#a4de6c', '#d0ed57', '#83a6ed', '#8dd1e1'
+                                      ];
+                                      const catIndex = categories.indexOf(task.category || '');
+                                      return colors[catIndex >= 0 ? catIndex % colors.length : 0];
+                                    })()
+                                  }}
+                                >
+                                  {task.category || 'Unknown'}
+                                </span>
+                                <span className="text-sm">{task.title}</span>
+                              </div>
+                              <div className="flex items-center gap-4 text-sm">
+                                {task.estimatedHours && (
+                                  <span className="text-muted-foreground">
+                                    予定: {task.estimatedHours.toFixed(1)}h
+                                  </span>
+                                )}
+                                <span className="font-medium text-green-600">
+                                  実績: {task.actualHours?.toFixed(1)}h
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>

@@ -1,50 +1,47 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
-}
-
-model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  username  String
-  password  String
-  createdAt DateTime @default(now())
-  tasks     Task[]
-  categories Category[]
 }
 
 model Category {
   id        Int      @id @default(autoincrement())
   name      String
   userId    Int
+  createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   tasks     Task[]
-  createdAt DateTime @default(now())
 
   @@unique([userId, name])
 }
 
 model Task {
-  id              String   @id @default(uuid()) @db.Uuid
-  title           String
-  status          String   @default("active")
-  categoryId      Int
-  category        Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  userId          Int
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  estimatedHours  Float?
-  actualHours     Float?
-  isWorking       Boolean  @default(false)
-  workStartTime   DateTime?
-  dueDate         DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(uuid()) @db.Uuid
+  title          String
+  status         String    @default("active")
+  categoryId     Int
+  userId         Int
+  estimatedHours Float?
+  actualHours    Float?
+  isWorking      Boolean   @default(false)
+  workStartTime  DateTime?
+  dueDate        DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  category       Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id        Int        @id @default(autoincrement())
+  email     String     @unique
+  username  String
+  password  String
+  createdAt DateTime   @default(now())
+  categories Category[]
+  tasks     Task[]
 }

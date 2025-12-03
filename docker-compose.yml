@@ -1,0 +1,17 @@
+services:
+  # Next.jsアプリケーション（開発モード）
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: todoapp-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
