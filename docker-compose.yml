@@ -1,4 +1,24 @@
 services:
+  # ローカル開発用PostgreSQLデータベース
+  db:
+    image: postgres:16-alpine
+    container_name: todoapp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: todoapp
+    ports:
+      # ホスト側は5433に割り当て（5432は別プロジェクトが使用中のため競合回避）
+      - "5433:5432"
+    volumes:
+      - todoapp-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d todoapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   # Next.jsアプリケーション（開発モード）
   app:
     build:
@@ -10,8 +30,18 @@ services:
       - "3000:3000"
     env_file:
       - .env
+    environment:
+      # コンテナ内からはローカルDBサービス(db)に接続する
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/todoapp?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@db:5432/todoapp?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       - .:/app
       - /app/node_modules
       - /app/.next
     command: npm run dev
+
+volumes:
+  todoapp-db-data:
