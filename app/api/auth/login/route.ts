@@ -50,11 +50,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Login error:', error)
     return NextResponse.json(
-      {
-        error: 'ログインに失敗しました',
-        // TODO: 診断用。原因特定後に削除する
-        detail: error instanceof Error ? error.message : String(error),
-      },
+      { error: 'ログインに失敗しました' },
       { status: 500 }
     )
   }

@@ -166,66 +166,26 @@ export default function TodoPage() {
   useEffect(() => {
     if (typeof window === "undefined" || !user?.id) return;
     
-    const loadData = async () => {
-      try {
-        // データベースからカテゴリーとタスクを取得
+    const loadData = () => {
+      // データはすべてブラウザのlocalStorageに保存する（DB不使用）
+      const STORAGE_KEY = getStorageKey(user.id, "tasks");
+      const CATEGORIES_KEY = getStorageKey(user.id, "categories");
+
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (stored) {
         try {
-          const [dbCats, dbTasks] = await Promise.all([
-            apiService.getCategories(),
-            apiService.getTasks()
-          ]);
-          
-          setDbCategories(dbCats);
-          setCategories(dbCats.map((c: Category) => c.name));
-          
-          // PrismaタスクをローカルTask型に変換
-          const convertedTasks = dbTasks.map((t: PrismaTask) => ({
-            id: t.id,
-            title: t.title,
-            category: t.category?.name || '',
-            categoryId: t.categoryId,
-            status: t.status as TaskStatus,
-            createdAt: t.createdAt,
-            updatedAt: t.updatedAt, // 完了日として使用
-            estimatedHours: t.estimatedHours || undefined,
-            actualHours: t.actualHours || undefined,
-            isWorking: t.isWorking || false,
-            workStartTime: t.workStartTime || undefined,
-            dueDate: t.dueDate || undefined
-          }));
-          
-          setTasks(convertedTasks);
-          setUseDatabase(true);
-          
-          console.log('Loaded from database:', { categories: dbCats.length, tasks: dbTasks.length });
-        } catch (dbError) {
-          console.error("Failed to load from database, falling back to localStorage:", dbError);
-          
-          // データベース読み込み失敗時はlocalStorageから読み込み
-          const STORAGE_KEY = getStorageKey(user.id, "tasks");
-          const CATEGORIES_KEY = getStorageKey(user.id, "categories");
-          
-          const stored = window.localStorage.getItem(STORAGE_KEY);
-          if (stored) {
-            try {
-              const parsed = JSON.parse(stored) as Task[];
-              setTasks(parsed);
-            } catch (e) {
-              console.error("Failed to parse tasks from localStorage", e);
-            }
-          }
-          const storedCategories = window.localStorage.getItem(CATEGORIES_KEY);
-          if (storedCategories) {
-            try {
-              const parsed = JSON.parse(storedCategories) as string[];
-              setCategories(parsed);
-            } catch (e) {
-              console.error("Failed to parse categories from localStorage", e);
-            }
-          }
+          setTasks(JSON.parse(stored) as Task[]);
+        } catch (e) {
+          console.error("Failed to parse tasks from localStorage", e);
         }
-      } catch (error) {
-        console.error("Failed to load data:", error);
+      }
+      const storedCategories = window.localStorage.getItem(CATEGORIES_KEY);
+      if (storedCategories) {
+        try {
+          setCategories(JSON.parse(storedCategories) as string[]);
+        } catch (e) {
+          console.error("Failed to parse categories from localStorage", e);
+        }
       }
     };
     
