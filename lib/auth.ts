@@ -7,7 +7,8 @@ export const authService = {
     });
     if (!res.ok) {
       const error = await res.json();
-      throw new Error(error.error || 'Signup failed');
+      console.error('Signup failed:', error);
+      throw new Error(error.detail ? `${error.error}: ${error.detail}` : error.error || 'Signup failed');
     }
     return res.json();
   },
@@ -20,7 +21,8 @@ export const authService = {
     });
     if (!res.ok) {
       const error = await res.json();
-      throw new Error(error.error || 'Login failed');
+      console.error('Login failed:', error);
+      throw new Error(error.detail ? `${error.error}: ${error.detail}` : error.error || 'Login failed');
     }
     return res.json();
   },
